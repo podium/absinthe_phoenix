@@ -84,6 +84,7 @@ defmodule Absinthe.Phoenix.Channel do
 
     Phoenix.PubSub.unsubscribe(socket.pubsub_server, doc_id)
     Absinthe.Subscription.unsubscribe(pubsub, doc_id)
+    run_callback(:unsubscribe, doc_id, socket)
     {:reply, {:ok, %{subscriptionId: doc_id}}, socket}
   end
 
@@ -100,6 +101,8 @@ defmodule Absinthe.Phoenix.Channel do
             metadata: {:fastlane, transport_pid, serializer, []},
             link: true
           )
+
+        run_callback(:subscribed, topic, socket)
 
         socket = Absinthe.Phoenix.Socket.put_options(socket, context: context)
         {{:ok, %{subscriptionId: topic}}, socket}
@@ -129,6 +132,18 @@ defmodule Absinthe.Phoenix.Channel do
     end
   end
 
+  def terminate(_, socket) do
+    with pid when is_pid(pid) <- get_callbacks_pid(socket),
+         callbacks when not is_nil(callbacks) <- Agent.get(pid, & &1) do
+      Enum.each(callbacks, fn
+        {{:terminate, _}, callback} -> callback.()
+        _ -> nil
+      end)
+    else
+      _ -> nil
+    end
+  end
+
   @doc false
   def default_pipeline(schema, options) do
     schema
@@ -137,5 +152,24 @@ defmodule Absinthe.Phoenix.Channel do
 
   def handle_info(_, state) do
     {:noreply, state}
+  end
+
+  defp get_callbacks_pid(socket) do
+    with %{opts: opts} <- Map.get(socket.assigns, :absinthe),
+         %{callbacks: pid} when is_pid(pid) <- Keyword.get(opts, :context),
+         true <- Process.alive?(pid) do
+      pid
+    else
+      _ -> nil
+    end
+  end
+
+  defp run_callback(event, topic, socket) do
+    with pid when is_pid(pid) <- get_callbacks_pid(socket),
+         callback when is_function(callback) <- Agent.get(pid, & &1[{event, topic}]) do
+      callback.()
+    else
+      _ -> nil
+    end
   end
 end
