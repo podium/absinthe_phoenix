@@ -133,15 +133,7 @@ defmodule Absinthe.Phoenix.Channel do
   end
 
   def terminate(_, socket) do
-    with pid when is_pid(pid) <- get_callbacks_pid(socket),
-         callbacks when not is_nil(callbacks) <- Agent.get(pid, & &1) do
-      Enum.each(callbacks, fn
-        {{:terminate, _}, callback} -> callback.()
-        _ -> nil
-      end)
-    else
-      _ -> nil
-    end
+    run_callback(:terminate, nil, socket)
   end
 
   @doc false
@@ -154,22 +146,10 @@ defmodule Absinthe.Phoenix.Channel do
     {:noreply, state}
   end
 
-  defp get_callbacks_pid(socket) do
-    with %{opts: opts} <- Map.get(socket.assigns, :absinthe),
-         %{callbacks: pid} when is_pid(pid) <- Keyword.get(opts, :context),
-         true <- Process.alive?(pid) do
-      pid
-    else
-      _ -> nil
-    end
-  end
-
   defp run_callback(event, topic, socket) do
-    with pid when is_pid(pid) <- get_callbacks_pid(socket),
-         callback when is_function(callback) <- Agent.get(pid, & &1[{event, topic}]) do
-      callback.()
-    else
-      _ -> nil
+    with %{opts: opts} <- Map.get(socket.assigns, :absinthe),
+         %{run_callback: run_callback} when is_function(run_callback) <- Keyword.get(opts, :context) do
+      run_callback.(event, topic)
     end
   end
 end
